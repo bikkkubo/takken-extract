@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>宅建一問一答データ抽出システム</title>
+    
+    <!-- External Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏠 宅建一問一答データ抽出システム</h1>
+            <p class="subtitle">高精度PDF解析エンジン搭載</p>
+        </header>
+        
+        <!-- PDF アップロードセクション -->
+        <section class="upload-section" id="uploadSection">
+            <h2>📁 PDFファイルアップロード</h2>
+            <div class="file-input-wrapper">
+                <input type="file" 
+                       id="pdfInput" 
+                       class="file-input" 
+                       accept=".pdf" 
+                       multiple>
+                <label for="pdfInput" class="file-input-button">
+                    📄 PDFファイルを選択
+                </label>
+            </div>
+            <div class="upload-info">
+                ドラッグ&ドロップでもアップロード可能 | 複数ファイル選択対応
+            </div>
+            
+            <div id="fileList" class="file-list"></div>
+        </section>
+        
+        <!-- 抽出オプション -->
+        <section class="extraction-options">
+            <h3>🔧 抽出オプション</h3>
+            <div class="options-grid">
+                <div class="option-group">
+                    <label for="textExtractionMode">テキスト抽出モード:</label>
+                    <select id="textExtractionMode">
+                        <option value="improved">改良版（推奨）</option>
+                        <option value="structured">構造化</option>
+                        <option value="simple">シンプル</option>
+                        <option value="adaptive">適応的</option>
+                    </select>
+                </div>
+                <div class="option-group">
+                    <label for="confidenceThreshold">信頼度閾値:</label>
+                    <input type="range" id="confidenceThreshold" min="0" max="100" value="30" step="5">
+                    <span id="confidenceValue">30%</span>
+                </div>
+                <div class="option-group">
+                    <label for="questionMinLength">最小問題文長:</label>
+                    <input type="number" id="questionMinLength" min="10" max="200" value="20">
+                </div>
+                <div class="option-group">
+                    <label for="enableDebugMode">
+                        <input type="checkbox" id="enableDebugMode"> デバッグモード
+                    </label>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 統計情報 -->
+        <section class="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="totalQuestions">0</div>
+                <div class="stat-label">総問題数</div>
+                <div class="stat-trend" id="questionsTrend"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="correctAnswers">0</div>
+                <div class="stat-label">正解問題</div>
+                <div class="stat-subtext" id="correctPercentage">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="incorrectAnswers">0</div>
+                <div class="stat-label">不正解問題</div>
+                <div class="stat-subtext" id="incorrectPercentage">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="sectionsCount">0</div>
+                <div class="stat-label">セクション数</div>
+                <div class="stat-subtext" id="sectionsDetail">-</div>
+            </div>
+            <div class="stat-card confidence-card">
+                <div class="stat-number confidence-number" id="averageConfidence">0%</div>
+                <div class="stat-label">平均信頼度</div>
+                <div class="confidence-bar">
+                    <div class="confidence-fill" id="confidenceFill" style="width: 0%"></div>
+                </div>
+                <div class="quality-breakdown" id="qualityBreakdown">
+                    <div class="quality-item">
+                        <span class="quality-high">高品質: <span id="highQualityCount">0</span></span>
+                    </div>
+                    <div class="quality-item">
+                        <span class="quality-medium">中品質: <span id="mediumQualityCount">0</span></span>
+                    </div>
+                    <div class="quality-item">
+                        <span class="quality-low">低品質: <span id="lowQualityCount">0</span></span>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 操作ボタン -->
+        <section class="controls">
+            <button onclick="app.extractFromPDFs()" id="extractBtn" class="btn-primary">
+                📚 PDF データ抽出
+            </button>
+            <button onclick="app.downloadCSV()" id="downloadBtn" class="btn-secondary" disabled>
+                💾 CSV ダウンロード
+            </button>
+            <button onclick="app.showPreview()" id="previewBtn" class="btn-secondary" disabled>
+                👁️ プレビュー表示
+            </button>
+            <button onclick="app.showDebugInfo()" id="debugBtn" class="btn-secondary" disabled>
+                🔍 デバッグ情報
+            </button>
+            <button onclick="app.exportReport()" id="reportBtn" class="btn-secondary" disabled>
+                📊 詳細レポート
+            </button>
+        </section>
+        
+        <!-- プログレスバー -->
+        <section class="progress-section">
+            <div class="progress-header">
+                <div class="progress-info">
+                    <span class="progress-title" id="progressTitle">待機中</span>
+                    <span class="progress-percentage" id="progressPercentage">0%</span>
+                </div>
+                <div class="progress-stats">
+                    <span class="progress-stat">
+                        処理済み: <span id="processedFiles">0</span>/<span id="totalFiles">0</span>
+                    </span>
+                    <span class="progress-stat">
+                        経過時間: <span id="elapsedTime">00:00</span>
+                    </span>
+                </div>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="progress-text" id="progressText"></div>
+            <div class="progress-details" id="progressDetails"></div>
+        </section>
+        
+        <!-- ステータス表示 -->
+        <section id="status" class="status"></section>
+        
+        <!-- デバッグ情報 -->
+        <section id="debugInfo" class="debug-info" style="display: none;"></section>
+        
+        <!-- プレビュー -->
+        <section id="preview" class="preview-container" style="display: none;"></section>
+        
+        <!-- レポート -->
+        <section id="report" class="report-container" style="display: none;"></section>
+    </div>
+
+    <!-- Scripts -->
+    <script src="config.js"></script>
+    <script src="utils.js"></script>
+    <script src="text-cleaner.js"></script>
+    <script src="pdf-extractor.js"></script>
+    <script src="question-parser.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
