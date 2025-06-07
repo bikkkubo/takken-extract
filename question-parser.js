@@ -45,6 +45,14 @@ const QuestionParser = {
             // 問題抽出
             const extractionResult = this.extractQuestions(lines, detectedSection, fileName, options);
             
+            // マッチしなかった行をログ出力
+            if (extractionResult.unmatchedLines && extractionResult.unmatchedLines.length > 0) {
+                Utils.debugLog.log('debug', '=== マッチしなかった行（最初50行） ===');
+                for (let i = 0; i < Math.min(50, extractionResult.unmatchedLines.length); i++) {
+                    Utils.debugLog.log('debug', `未マッチ行${i+1}: "${extractionResult.unmatchedLines[i]}"`);
+                }
+            }
+            
             // 後処理
             const processedQuestions = this.postProcessQuestions(extractionResult.questions, options);
             
@@ -382,7 +390,19 @@ const QuestionParser = {
         });
 
         console.log(`最終抽出結果: ${questions.length}問`);
-        return { questions, patterns };
+        
+        // マッチしなかった行を収集
+        const unmatchedLines = [];
+        if (questions.length === 0) {
+            // 問題が0個の場合、全ての非空行を未マッチとして記録
+            for (const line of lines) {
+                if (line.trim().length > 0) {
+                    unmatchedLines.push(line);
+                }
+            }
+        }
+        
+        return { questions, patterns, unmatchedLines };
     },
 
     /**

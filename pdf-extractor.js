@@ -212,12 +212,16 @@ const PDFExtractor = {
         try {
             const page = await pdf.getPage(pageNum);
             
-            // テキストコンテンツを取得
+            // レイアウト保持のため、ブロック情報を取得
             const textContent = await page.getTextContent({
                 normalizeWhitespace: false,
                 disableCombineTextItems: false,
                 includeMarkedContent: true
             });
+            
+            // ブロック単位でテキストを再構築（レイアウト保持）
+            const blocks = this.extractTextBlocks(textContent);
+            Utils.debugLog.log(`ページ ${pageNum}: ${blocks.length}ブロック抽出`);
 
             // レンダリング情報も取得（将来的な機能拡張用）
             let renderInfo = null;
@@ -472,6 +476,99 @@ const PDFExtractor = {
         };
 
         return debug;
+    },
+
+    /**
+     * テキストコンテンツからブロック単位でテキストを抽出
+     * @param {object} textContent - PDF.jsのgetTextContent()の結果
+     * @returns {Array} ブロック配列
+     */
+    extractTextBlocks(textContent) {
+        if (!textContent || !textContent.items) {
+            return [];
+        }
+
+        // アイテムを座標でソート（Y座標 → X座標の順）
+        const sortedItems = textContent.items
+            .map((item, index) => ({
+                ...item,
+                originalIndex: index,
+                x: item.transform[4],
+                y: item.transform[5],
+                width: item.width,
+                height: item.height
+            }))
+            .sort((a, b) => {
+                // Y座標で降順ソート（上から下へ）
+                const yDiff = Math.round(b.y) - Math.round(a.y);
+                if (Math.abs(yDiff) > 2) { // 2ピクセルの閾値
+                    return yDiff;
+                }
+                // 同じ行内では X座標で昇順ソート（左から右へ）
+                return Math.round(a.x) - Math.round(b.x);
+            });
+
+        // ブロックにグループ化
+        const blocks = [];
+        let currentBlock = [];
+        let lastY = null;
+        const lineHeightThreshold = 5; // 行間の閾値
+
+        for (const item of sortedItems) {
+            const currentY = Math.round(item.y);
+            
+            // 新しい行の判定
+            if (lastY !== null && Math.abs(currentY - lastY) > lineHeightThreshold) {
+                // 現在のブロックを完了
+                if (currentBlock.length > 0) {
+                    blocks.push(this.mergeBlockItems(currentBlock));
+                    currentBlock = [];
+                }
+            }
+            
+            currentBlock.push(item);
+            lastY = currentY;
+        }
+
+        // 最後のブロック
+        if (currentBlock.length > 0) {
+            blocks.push(this.mergeBlockItems(currentBlock));
+        }
+
+        Utils.debugLog.log(`ブロック抽出完了: ${blocks.length}ブロック`);
+        return blocks;
+    },
+
+    /**
+     * ブロック内のアイテムをマージしてテキストブロックを作成
+     * @param {Array} items - 同一ブロック内のアイテム
+     * @returns {object} マージされたブロック
+     */
+    mergeBlockItems(items) {
+        if (!items || items.length === 0) {
+            return { text: '', x: 0, y: 0, width: 0, height: 0 };
+        }
+
+        // テキストを結合（スペース区切り）
+        const text = items
+            .map(item => item.str.trim())
+            .filter(str => str.length > 0)
+            .join(' ');
+
+        // 座標とサイズを計算
+        const minX = Math.min(...items.map(item => item.x));
+        const maxX = Math.max(...items.map(item => item.x + item.width));
+        const minY = Math.min(...items.map(item => item.y));
+        const maxY = Math.max(...items.map(item => item.y + item.height));
+
+        return {
+            text: text,
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+            itemCount: items.length
+        };
     }
 };
 

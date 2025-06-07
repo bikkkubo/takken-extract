@@ -216,7 +216,7 @@ const CONFIG = {
         ],
         
         // 最小問題文長
-        minQuestionLength: 10,
+        minQuestionLength: 0,
         maxQuestionLength: 1000,
         
         // 最小解説文長
@@ -243,7 +243,7 @@ const CONFIG = {
             patternMatched: 5,
             choicesFound: 15,          // 選択肢発見ボーナス
             formatConsistent: 10,      // 形式一貫性ボーナス
-            minThreshold: 0,           // 最も緩い閾値に変更
+            minThreshold: 0,           // フィルタ閾値を0に設定
             maxThreshold: 95
         }
     },
