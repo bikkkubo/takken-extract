@@ -107,6 +107,13 @@ const TakkenApp = {
             this.elements.textExtractionMode.addEventListener('change', (e) => this.saveSettings());
         }
 
+        if (this.elements.enableDebugMode) {
+            this.elements.enableDebugMode.addEventListener('change', (e) => {
+                Utils.debugLog.setEnabled(e.target.checked);
+                this.saveSettings();
+            });
+        }
+
         // キーボードショートカット
         document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
 
@@ -146,6 +153,7 @@ const TakkenApp = {
         
         if (savedSettings.debugMode !== undefined && this.elements.enableDebugMode) {
             this.elements.enableDebugMode.checked = savedSettings.debugMode;
+            Utils.debugLog.setEnabled(savedSettings.debugMode);
         }
     },
 
@@ -608,12 +616,19 @@ const TakkenApp = {
             // 抽出オプションを設定
             const options = {
                 mode: this.elements.textExtractionMode?.value || CONFIG.EXTRACTION.modes.IMPROVED,
-                confidenceThreshold: parseInt(this.elements.confidenceThreshold?.value || CONFIG.PARSING.confidence.minThreshold),
-                minQuestionLength: parseInt(this.elements.questionMinLength?.value || CONFIG.PARSING.minQuestionLength),
+                confidenceThreshold: Math.max(Math.min(parseInt(this.elements.confidenceThreshold?.value || CONFIG.PARSING.confidence.minThreshold), 50), 10), // 10-50%の範囲に制限
+                minQuestionLength: Math.max(Math.min(parseInt(this.elements.questionMinLength?.value || CONFIG.PARSING.minQuestionLength), 50), 5), // 5-50文字の範囲に制限
                 debugMode: this.elements.enableDebugMode?.checked || false
             };
+            
+            // より緩い信頼度設定でデバッグ
+            if (options.debugMode) {
+                options.confidenceThreshold = Math.min(options.confidenceThreshold, 20); // デバッグ時はより緩い閾値
+                console.log('デバッグモード有効: より緩い抽出条件を適用');
+            }
 
             console.log('抽出オプション:', options);
+            Utils.debugLog.log('info', '抽出オプション設定', options);
             this.addProgressDetail(`抽出モード: ${options.mode}, 信頼度閾値: ${options.confidenceThreshold}%`, 'info');
 
             // 改良された進捗コールバック
@@ -634,6 +649,9 @@ const TakkenApp = {
                         fileName: progress.currentFile,
                         result: progress.result
                     });
+                    
+                    // 詳細ログに記録
+                    Utils.debugLog.logPDFExtraction(progress.currentFile, progress.result);
                     
                     // 各ファイルの処理結果をログ
                     if (progress.result.success) {
@@ -664,6 +682,7 @@ const TakkenApp = {
             let totalQuestions = 0;
             let successfulFiles = 0;
             let failedFiles = 0;
+            let totalProcessingTime = 0;
 
             // 各ファイルから問題をパース
             for (const { file, result } of extractionResults) {
@@ -674,6 +693,9 @@ const TakkenApp = {
                             file.name, 
                             options
                         );
+                        
+                        // 詳細ログに記録
+                        Utils.debugLog.logQuestionParsing(file.name, parsingResult);
                         
                         this.state.extractedData.push(...parsingResult.questions);
                         totalQuestions += parsingResult.questions.length;
@@ -709,10 +731,20 @@ const TakkenApp = {
 
             // 統計計算
             this.state.extractionStats = PDFExtractor.calculateExtractionStats(extractionResults);
+            
+            // 統計をログに記録
+            Utils.debugLog.logStats({
+                totalFiles: this.state.uploadedFiles.length,
+                successfulFiles: successfulFiles,
+                failedFiles: failedFiles,
+                totalQuestions: totalQuestions,
+                averageConfidence: totalQuestions > 0 ? 
+                    this.state.extractedData.reduce((sum, q) => sum + (q.confidence || 0), 0) / totalQuestions : 0,
+                processingTime: (totalProcessingTime = Date.now() - startTime)
+            });
 
             // 最終結果の評価
-            const processingTime = Date.now() - startTime;
-            this.evaluateExtractionResults(successfulFiles, failedFiles, totalQuestions, processingTime);
+            this.evaluateExtractionResults(successfulFiles, failedFiles, totalQuestions, totalProcessingTime);
 
             this.updateStats();
             this.updateProgress(100, '抽出完了', {

@@ -509,11 +509,5 @@ const TextCleaner = {
     }
 };
 
-// ユーティリティ関数の追加
-Utils.escapeRegExp = function(string) {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
-
 // グローバルエクスポート
 window.TextCleaner = TextCleaner;
-E0F

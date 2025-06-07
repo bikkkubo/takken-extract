@@ -83,6 +83,42 @@ const CONFIG = {
                 regex: /^Q[．.\s]*(\d+)[．.\s]*(.+?)(?=Q[．.\s]*\d+|$)/gs,
                 confidence: 0.75,
                 type: 'q_format'
+            },
+            {
+                name: '宅建形式1',
+                regex: /^(\d+)[\s　]*[．.。][\s　]*(.+?)(?=\d+[\s　]*[．.。]|$)/gs,
+                confidence: 0.85,
+                type: 'takken_style1'
+            },
+            {
+                name: '宅建形式2',
+                regex: /^(\d+)[\s　]*[:：][\s　]*(.+?)(?=\d+[\s　]*[:：]|$)/gs,
+                confidence: 0.85,
+                type: 'takken_style2'
+            },
+            {
+                name: '5桁問題番号',
+                regex: /^(\d{4,6})(.+?)(?=\d{4,6}|$)/gs,
+                confidence: 0.90,
+                type: 'five_digit_number'
+            },
+            {
+                name: '宅建年度番号形式',
+                regex: /^(\d{5})(.+?)(?=×|〇|○|解説|答え|^[\s]*\d{5}|$)/gs,
+                confidence: 0.95,
+                type: 'takken_year_number'
+            },
+            {
+                name: 'シンプル数字',
+                regex: /^(\d+)[\s　]+(.+?)(?=^\d+[\s　]|$)/gs,
+                confidence: 0.70,
+                type: 'simple_number'
+            },
+            {
+                name: '数字開始宅建形式',
+                regex: /^(\d{3,4})\s+(.+?)(?=^\d{3,4}\s|$)/gms,
+                confidence: 0.90,
+                type: 'number_start_takken'
             }
         ],
         
@@ -183,7 +219,7 @@ const CONFIG = {
             patternMatched: 5,
             choicesFound: 15,          // 選択肢発見ボーナス
             formatConsistent: 10,      // 形式一貫性ボーナス
-            minThreshold: 30,
+            minThreshold: 20,          // より緩い閾値に変更
             maxThreshold: 95
         }
     },
@@ -309,7 +345,7 @@ const CONFIG = {
         
         // 問題番号範囲
         questionNumberMin: 1,
-        questionNumberMax: 999,
+        questionNumberMax: 99999,
         
         // 必須フィールド
         requiredFields: ['question', 'answer'],
@@ -383,8 +419,21 @@ function updateConfig(section, key, value) {
 
 // 初期化実行
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('CONFIG: DOM読み込み完了、初期化開始');
     if (validateConfig()) {
-        initializePDFJS();
+        // PDF.js の読み込み完了を待つ
+        if (typeof pdfjsLib !== 'undefined') {
+            initializePDFJS();
+        } else {
+            console.warn('PDF.js未読み込み、再試行します...');
+            setTimeout(() => {
+                if (typeof pdfjsLib !== 'undefined') {
+                    initializePDFJS();
+                } else {
+                    console.error('PDF.jsの読み込みに失敗しました');
+                }
+            }, 1000);
+        }
     }
 });
 

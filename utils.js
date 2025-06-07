@@ -5,6 +5,161 @@
 
 const Utils = {
     /**
+     * デバッグログ管理
+     */
+    debugLog: {
+        logs: [],
+        isEnabled: false,
+        
+        /**
+         * ログを記録
+         * @param {string} level - ログレベル (info, warn, error, debug)
+         * @param {string} message - メッセージ
+         * @param {object} data - 追加データ
+         */
+        log: function(level, message, data = null) {
+            const timestamp = new Date().toISOString();
+            const logEntry = {
+                timestamp: timestamp,
+                level: level,
+                message: message,
+                data: data
+            };
+            
+            this.logs.push(logEntry);
+            
+            // コンソールにも出力
+            const consoleMessage = `[${timestamp}] ${level.toUpperCase()}: ${message}`;
+            if (data) {
+                console.log(consoleMessage, data);
+            } else {
+                console.log(consoleMessage);
+            }
+            
+            // ログが1000件を超えたら古いものを削除
+            if (this.logs.length > 1000) {
+                this.logs = this.logs.slice(-1000);
+            }
+        },
+        
+        /**
+         * デバッグモードを有効/無効化
+         * @param {boolean} enabled - 有効かどうか
+         */
+        setEnabled: function(enabled) {
+            this.isEnabled = enabled;
+            this.log('info', `デバッグモード: ${enabled ? '有効' : '無効'}`);
+        },
+        
+        /**
+         * ログをクリア
+         */
+        clear: function() {
+            this.logs = [];
+            this.log('info', 'ログをクリアしました');
+        },
+        
+        /**
+         * ログをテキスト形式でエクスポート
+         * @returns {string} ログテキスト
+         */
+        exportToText: function() {
+            let logText = `=== 宅建PDF抽出システム デバッグログ ===\n`;
+            logText += `生成日時: ${new Date().toISOString()}\n`;
+            logText += `総ログ数: ${this.logs.length}\n\n`;
+            
+            for (const log of this.logs) {
+                logText += `[${log.timestamp}] ${log.level.toUpperCase()}: ${log.message}\n`;
+                if (log.data) {
+                    if (typeof log.data === 'object') {
+                        logText += `データ: ${JSON.stringify(log.data, null, 2)}\n`;
+                    } else {
+                        logText += `データ: ${log.data}\n`;
+                    }
+                }
+                logText += '\n';
+            }
+            
+            return logText;
+        },
+        
+        /**
+         * ログファイルをダウンロード
+         */
+        downloadLog: function() {
+            const logText = this.exportToText();
+            const timestamp = Utils.formatDate(new Date(), 'YYYY-MM-DD_HH-mm-ss');
+            const filename = `takken_debug_log_${timestamp}.txt`;
+            Utils.downloadFile(logText, filename, 'text/plain;charset=utf-8');
+        },
+        
+        /**
+         * 統計情報を記録
+         * @param {object} stats - 統計データ
+         */
+        logStats: function(stats) {
+            this.log('info', '=== 処理統計 ===');
+            this.log('info', `総ファイル数: ${stats.totalFiles || 0}`);
+            this.log('info', `成功ファイル数: ${stats.successfulFiles || 0}`);
+            this.log('info', `失敗ファイル数: ${stats.failedFiles || 0}`);
+            this.log('info', `総問題数: ${stats.totalQuestions || 0}`);
+            this.log('info', `平均信頼度: ${stats.averageConfidence || 0}%`);
+            this.log('info', `処理時間: ${stats.processingTime || 0}ms`);
+        },
+        
+        /**
+         * PDF抽出結果を記録
+         * @param {string} fileName - ファイル名
+         * @param {object} result - 抽出結果
+         */
+        logPDFExtraction: function(fileName, result) {
+            this.log('debug', `=== PDF抽出結果: ${fileName} ===`);
+            this.log('debug', `成功: ${result.success}`);
+            this.log('debug', `ページ数: ${result.pageCount || 0}`);
+            this.log('debug', `抽出テキスト長: ${result.cleanedText ? result.cleanedText.length : 0}`);
+            this.log('debug', `品質スコア: ${result.quality ? result.quality.confidence : 0}%`);
+            this.log('debug', `抽出方法: ${result.extractionMethod || 'unknown'}`);
+            
+            if (result.cleanedText) {
+                // テキストの最初と最後を記録
+                const text = result.cleanedText;
+                const preview = text.length > 1000 ? 
+                    `最初500文字: "${text.substring(0, 500)}"\n最後500文字: "${text.substring(text.length - 500)}"` : 
+                    `全テキスト: "${text}"`;
+                this.log('debug', `抽出テキストプレビュー:\n${preview}`);
+            }
+            
+            if (result.error) {
+                this.log('error', `抽出エラー: ${result.error}`);
+            }
+        },
+        
+        /**
+         * 問題パース結果を記録
+         * @param {string} fileName - ファイル名
+         * @param {object} result - パース結果
+         */
+        logQuestionParsing: function(fileName, result) {
+            this.log('debug', `=== 問題パース結果: ${fileName} ===`);
+            this.log('debug', `抽出問題数: ${result.questions ? result.questions.length : 0}`);
+            this.log('debug', `処理時間: ${result.metadata ? result.metadata.processingTime : 0}ms`);
+            this.log('debug', `検出セクション: ${result.metadata ? result.metadata.detectedSection : 'unknown'}`);
+            
+            if (result.questions && result.questions.length > 0) {
+                // 最初の3問をサンプルとして記録
+                const samples = result.questions.slice(0, 3);
+                for (const question of samples) {
+                    this.log('debug', `サンプル問題 ${question.questionNumber}: "${question.question.substring(0, 100)}..." (信頼度: ${question.confidence}%)`);
+                }
+            }
+            
+            if (result.statistics) {
+                this.log('debug', '統計:', result.statistics);
+            }
+        }
+    },
+
+    /**
      * ファイルサイズを人間が読める形式にフォーマット
      * @param {number} bytes - バイト数
      * @returns {string} フォーマットされたファイルサイズ
@@ -47,6 +202,15 @@ const Utils = {
      */
     getFileExtension: function(filename) {
         return filename.slice((filename.lastIndexOf('.') - 1 >>> 0) + 2).toLowerCase();
+    },
+
+    /**
+     * 正規表現用文字列エスケープ
+     * @param {string} string - エスケープする文字列
+     * @returns {string} エスケープされた文字列
+     */
+    escapeRegExp: function(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     },
 
     /**

@@ -17,9 +17,27 @@ const QuestionParser = {
         
         try {
             console.log(`問題パース開始: ${fileName}`);
+            Utils.debugLog.log('debug', `=== 問題パース詳細デバッグ: ${fileName} ===`);
+            Utils.debugLog.log('debug', `元テキスト長: ${text.length}文字`);
             
             const cleanedText = TextCleaner.cleanJapaneseText(text);
             const lines = this.preprocessText(cleanedText);
+            
+            Utils.debugLog.log('debug', `クリーニング後テキスト長: ${cleanedText.length}文字`);
+            Utils.debugLog.log('debug', `分割後行数: ${lines.length}行`);
+            
+            // 最初の20行をサンプル表示
+            Utils.debugLog.log('debug', '=== テキスト最初20行サンプル ===');
+            for (let i = 0; i < Math.min(20, lines.length); i++) {
+                const line = lines[i];
+                Utils.debugLog.log('debug', `行${i+1}: "${line}"`);
+                
+                // 5桁数字パターンのテスト
+                const fiveDigitMatch = line.match(/^(\d{4,6})/);
+                if (fiveDigitMatch) {
+                    Utils.debugLog.log('debug', `  → 5桁数字検出: ${fiveDigitMatch[1]}`);
+                }
+            }
             
             // セクション検出
             const detectedSection = this.detectSection(cleanedText, fileName);
@@ -201,7 +219,6 @@ const QuestionParser = {
      * @returns {object} 抽出結果
      */
     extractQuestions: function(lines, section, fileName, options) {
-        const questions = [];
         const patterns = {
             questionNumbers: [],
             answers: [],
@@ -209,18 +226,164 @@ const QuestionParser = {
             sections: [section]
         };
 
+        console.log(`問題抽出開始: ${fileName}, 行数: ${lines.length}`);
+        console.log(`=== 詳細デバッグ情報 ===`);
+        console.log(`テキスト行の最初20行:`, lines.slice(0, 20));
+        console.log(`各行の文字数:`, lines.slice(0, 20).map(line => line.length));
+        console.log(`設定されたセクション: ${section}`);
+        console.log(`抽出オプション:`, options);
+        
+        // 行の詳細分析を追加
+        console.log(`=== 行の詳細分析 ===`);
+        for (let i = 0; i < Math.min(30, lines.length); i++) {
+            const line = lines[i];
+            if (line.trim().length > 0) {
+                console.log(`行${i+1}: "${line}" (長さ: ${line.length})`);
+                // 各種パターンテスト
+                const tests = [
+                    { name: '問N', pattern: /^(?:問題?|問)\s*(\d+)/ },
+                    { name: '第N問', pattern: /^第\s*(\d+)\s*問/ },
+                    { name: '数字.', pattern: /^(\d+)[．.。]/ },
+                    { name: '数字)', pattern: /^(\d+)\)/ },
+                    { name: '(数字)', pattern: /^\((\d+)\)/ },
+                    { name: '【数字】', pattern: /^【(\d+)】/ },
+                    { name: '数字スペース', pattern: /^(\d+)\s+/ }
+                ];
+                
+                for (const test of tests) {
+                    const match = line.match(test.pattern);
+                    if (match) {
+                        console.log(`  → ${test.name}パターンマッチ: 問${match[1]}`);
+                    }
+                }
+            }
+        }
+        
+        // まず適応的システムで問題を検出
+        const fullText = lines.join('\n');
+        console.log(`結合後の全テキスト文字数: ${fullText.length}`);
+        console.log(`全テキストの最初1500文字:`, fullText.substring(0, 1500));
+        console.log(`全テキストの最後1000文字:`, fullText.substring(Math.max(0, fullText.length - 1000)));
+        
+        let questions = this.detectQuestionsAdaptive(fullText);
+        
+        console.log(`適応的検出結果: ${questions.length}問`);
+        
+        // 適応的システムで問題が見つからない場合、フォールバック処理
+        if (questions.length === 0) {
+            console.log('=== フォールバック処理開始 ===');
+            console.log(`フォールバック処理対象行数: ${lines.length}`);
+            console.log(`行のサンプル (最初10行):`, lines.slice(0, 10));
+            
+            // 簡単なパターンマッチテスト（拡張版）
+            console.log('=== 簡単パターンテスト ===');
+            const simpleTests = [
+                { name: '問+数字', pattern: /問\s*\d+/ },
+                { name: '数字+ピリオド', pattern: /\d+\s*[．.。]/ },
+                { name: '第N問', pattern: /第\s*\d+\s*問/ },
+                { name: '行頭数字', pattern: /^\d+/ },
+                { name: '数字括弧', pattern: /^\d+\)/ },
+                { name: '括弧数字', pattern: /^\(\d+\)/ },
+                { name: '【数字】', pattern: /^【\d+】/ },
+                { name: '数字コロン', pattern: /^\d+[:：]/ },
+                { name: '数字スペース文字', pattern: /^\d+\s+[あ-ん]/ },
+                { name: '宅建形式', pattern: /^\d{3,4}\s/ }
+            ];
+            
+            let totalMatches = 0;
+            for (let i = 0; i < Math.min(50, lines.length); i++) {
+                const line = lines[i];
+                let lineMatches = [];
+                
+                for (const test of simpleTests) {
+                    if (test.pattern.test(line)) {
+                        lineMatches.push(test.name);
+                        totalMatches++;
+                    }
+                }
+                
+                if (lineMatches.length > 0) {
+                    console.log(`行${i+1}: "${line.substring(0, 100)}" → [${lineMatches.join(', ')}]`);
+                }
+            }
+            
+            console.log(`総マッチ数: ${totalMatches}個の潜在的問題番号を発見`);
+            
+            // より詳細な全文解析
+            console.log('=== 全文での数字パターン検索 ===');
+            const numberPatterns = [
+                { name: '行頭数字', regex: /^(\d+)/gm },
+                { name: '問+数字', regex: /問\s*(\d+)/g },
+                { name: '第+数字+問', regex: /第\s*(\d+)\s*問/g }
+            ];
+            
+            for (const test of numberPatterns) {
+                const matches = [...fullText.matchAll(test.regex)];
+                if (matches.length > 0) {
+                    console.log(`${test.name}: ${matches.length}個のマッチ`);
+                    console.log(`  最初の5個: ${matches.slice(0, 5).map(m => m[1]).join(', ')}`);
+                }
+            }
+            
+            questions = this.fallbackExtraction(lines, section, fileName, options);
+            
+            // 最後の手段: 極めて単純な数字ベース抽出
+            if (questions.length === 0) {
+                console.log('=== 緊急フォールバック: 単純数字抽出 ===');
+                questions = this.emergencySimpleExtraction(lines, section, fileName);
+            }
+        }
+        
+        // セクション・メタデータの設定
+        questions.forEach((question, index) => {
+            question.id = index + 1;
+            question.section = section;
+            question.source = fileName;
+            question.year = this.extractYear(fileName) || 'R6';
+            
+            // パターン統計の更新
+            if (question.questionNumber) patterns.questionNumbers.push(question.questionNumber);
+            if (question.answer) patterns.answers.push(question.answer);
+            if (question.explanation) patterns.explanations.push(question.explanation);
+        });
+
+        console.log(`最終抽出結果: ${questions.length}問`);
+        return { questions, patterns };
+    },
+
+    /**
+     * フォールバック抽出処理（従来方式）
+     * @param {Array<string>} lines - テキスト行配列
+     * @param {string} section - セクション
+     * @param {string} fileName - ファイル名
+     * @param {object} options - オプション
+     * @returns {Array} 問題配列
+     */
+    fallbackExtraction: function(lines, section, fileName, options) {
+        console.log('=== フォールバック抽出処理開始 ===');
+        const questions = [];
         let currentQuestion = null;
         let questionId = 1;
         let lineIndex = 0;
+        let questionNumbersFound = 0;
 
         while (lineIndex < lines.length) {
             const line = lines[lineIndex];
             
-            // 問題番号検出
+            // 行の詳細ログ（最初20行のみ）
+            if (lineIndex < 20) {
+                console.log(`行${lineIndex + 1}: "${line}"`);
+            }
+            
+            // 問題番号検出（新実装）
             const questionMatch = this.detectQuestionNumber(line);
             if (questionMatch) {
+                questionNumbersFound++;
+                console.log(`問題番号検出！行${lineIndex + 1}: 問${questionMatch.number}`);
+                
                 // 前の問題を保存
-                if (currentQuestion && this.isValidQuestion(currentQuestion)) {
+                if (currentQuestion && this.isValidQuestionRelaxed(currentQuestion)) {
+                    console.log(`前の問題を保存: 問${currentQuestion.questionNumber}`);
                     questions.push(this.finalizeQuestion(currentQuestion));
                 }
 
@@ -232,18 +395,17 @@ const QuestionParser = {
                     fileName,
                     lineIndex
                 );
-                patterns.questionNumbers.push(questionMatch.number);
+                console.log(`新しい問題開始: 問${currentQuestion.questionNumber}`);
                 lineIndex++;
                 continue;
             }
 
-            // 答え検出
+            // 答え検出（新実装）
             if (currentQuestion && !currentQuestion.answer) {
                 const answerMatch = this.detectAnswer(line);
                 if (answerMatch) {
                     currentQuestion.answer = answerMatch.answer;
                     currentQuestion.confidence += CONFIG.PARSING.confidence.answerFound;
-                    patterns.answers.push(answerMatch.answer);
                     lineIndex++;
                     continue;
                 }
@@ -255,7 +417,6 @@ const QuestionParser = {
                 if (explanationMatch) {
                     currentQuestion.explanation = explanationMatch.explanation;
                     currentQuestion.confidence += CONFIG.PARSING.confidence.explanationFound;
-                    patterns.explanations.push(explanationMatch.explanation);
                     lineIndex++;
                     continue;
                 }
@@ -270,11 +431,83 @@ const QuestionParser = {
         }
 
         // 最後の問題を保存
-        if (currentQuestion && this.isValidQuestion(currentQuestion)) {
+        if (currentQuestion && this.isValidQuestionRelaxed(currentQuestion)) {
+            console.log(`最後の問題を保存: 問${currentQuestion.questionNumber}`);
             questions.push(this.finalizeQuestion(currentQuestion));
         }
 
-        return { questions, patterns };
+        console.log(`=== フォールバック処理完了 ===`);
+        console.log(`総行数: ${lines.length}`);
+        console.log(`問題番号発見数: ${questionNumbersFound}`);
+        console.log(`最終的な問題数: ${questions.length}`);
+        
+        return questions;
+    },
+
+    /**
+     * 問題の後処理
+     * @param {Array} questions - 問題配列
+     * @param {object} options - オプション
+     * @returns {Array} 処理済み問題配列
+     */
+    postProcessQuestions: function(questions, options = {}) {
+        console.log(`後処理開始: ${questions.length}問`);
+        
+        if (!questions || questions.length === 0) {
+            return [];
+        }
+        
+        let processedQuestions = [];
+        
+        for (const question of questions) {
+            try {
+                // 問題の最終化処理
+                const finalizedQuestion = this.finalizeQuestion(question);
+                
+                // 信頼度による検証
+                if (this.isValidQuestion(finalizedQuestion)) {
+                    processedQuestions.push(finalizedQuestion);
+                } else {
+                    console.log(`問題${finalizedQuestion.questionNumber}は品質基準を満たしません (信頼度: ${finalizedQuestion.confidence}%)`);
+                }
+            } catch (error) {
+                console.warn(`問題処理エラー (問${question.questionNumber || 'unknown'}):`, error);
+                continue;
+            }
+        }
+        
+        // 重複除去
+        processedQuestions = this.removeDuplicateQuestions(processedQuestions);
+        
+        // 問題番号順にソート
+        processedQuestions.sort((a, b) => (a.questionNumber || 0) - (b.questionNumber || 0));
+        
+        console.log(`後処理完了: ${processedQuestions.length}問が有効`);
+        return processedQuestions;
+    },
+
+    /**
+     * 重複問題を削除
+     * @param {Array} questions - 問題配列
+     * @returns {Array} 重複除去後の問題配列
+     */
+    removeDuplicateQuestions: function(questions) {
+        const seen = new Set();
+        const unique = [];
+        
+        for (const question of questions) {
+            // 問題番号と問題文の最初の50文字で重複判定
+            const key = `${question.questionNumber}_${question.question.substring(0, 50)}`;
+            
+            if (!seen.has(key)) {
+                seen.add(key);
+                unique.push(question);
+            } else {
+                console.log(`重複問題を除去: 問${question.questionNumber}`);
+            }
+        }
+        
+        return unique;
     },
 
     /**
@@ -283,33 +516,193 @@ const QuestionParser = {
      * @returns {Array} 検出された問題配列
      */
     detectQuestionsAdaptive: function(text) {
+        console.log('適応的問題検出開始、テキスト長:', text.length);
+        Utils.debugLog.log('debug', '=== 適応的問題検出開始 ===');
+        Utils.debugLog.log('debug', `テキスト長: ${text.length}文字`);
+        
+        if (!text || text.length < 10) {
+            console.warn('テキストが短すぎるか空です');
+            Utils.debugLog.log('warn', 'テキストが短すぎるか空です');
+            return [];
+        }
+        
+        // 5桁数字の存在確認
+        const fiveDigitNumbers = text.match(/\d{5}/g) || [];
+        Utils.debugLog.log('debug', `5桁数字の発見数: ${fiveDigitNumbers.length}`);
+        if (fiveDigitNumbers.length > 0) {
+            Utils.debugLog.log('debug', `5桁数字サンプル: ${fiveDigitNumbers.slice(0, 10).join(', ')}`);
+        }
+        
         const detectionResults = [];
         
         // 各パターンで検出を試行
         for (const patternConfig of CONFIG.PARSING.questionNumberPatterns) {
-            const result = this.detectWithPattern(text, patternConfig);
-            if (result.questions.length > 0) {
-                detectionResults.push({
-                    pattern: patternConfig,
-                    questions: result.questions,
-                    confidence: result.confidence,
-                    coverage: result.coverage
-                });
+            console.log(`パターン試行: ${patternConfig.name}`);
+            Utils.debugLog.log('debug', `=== パターン試行: ${patternConfig.name} ===`);
+            Utils.debugLog.log('debug', `パターン: ${patternConfig.regex.source}`);
+            
+            try {
+                const result = this.detectWithPattern(text, patternConfig);
+                console.log(`${patternConfig.name}で${result.questions.length}問検出、信頼度: ${result.confidence.toFixed(2)}`);
+                Utils.debugLog.log('debug', `検出結果: ${result.questions.length}問、信頼度: ${result.confidence.toFixed(2)}%`);
+                
+                if (result.questions.length > 0) {
+                    Utils.debugLog.log('debug', `成功パターン: ${patternConfig.name}`);
+                    detectionResults.push({
+                        pattern: patternConfig,
+                        questions: result.questions,
+                        confidence: result.confidence,
+                        coverage: result.coverage
+                    });
+                }
+            } catch (error) {
+                console.error(`パターン ${patternConfig.name} でエラー:`, error);
+                Utils.debugLog.log('error', `パターンエラー: ${patternConfig.name}`, error.message);
+                continue;
             }
         }
+        
+        console.log(`検出結果: ${detectionResults.length}個のパターンで問題発見`);
         
         // 最適なパターンを選択
         const bestPattern = this.selectBestPattern(detectionResults);
         
         if (bestPattern) {
+            console.log(`最適パターン: ${bestPattern.pattern.name}, 問題数: ${bestPattern.questions.length}`);
+            
             // 選択肢も検出
             for (const question of bestPattern.questions) {
-                question.choices = this.detectChoices(question.questionText);
-                question.patternUsed = bestPattern.pattern.name;
+                try {
+                    question.choices = this.detectChoices(question.question);
+                    question.patternUsed = bestPattern.pattern.name;
+                } catch (choiceError) {
+                    console.warn(`選択肢検出エラー (問${question.questionNumber}):`, choiceError);
+                    question.choices = [];
+                }
+            }
+            
+            return bestPattern.questions;
+        } else {
+            console.warn('適応的検出で問題が見つかりませんでした');
+            return [];
+        }
+    },
+
+    /**
+     * 問題番号を検出（基本実装）
+     * @param {string} line - テキスト行
+     * @returns {object|null} 検出結果
+     */
+    detectQuestionNumber: function(line) {
+        console.log(`問題番号検出を試行: "${line.substring(0, 50)}..."`);
+        
+        // 複数のパターンで試行
+        for (const patternConfig of CONFIG.PARSING.questionNumberPatterns) {
+            try {
+                // パターンを単一行用に適切に調整
+                let pattern = patternConfig.regex.source;
+                // 改行マッチを削除し、単一行モードに変更
+                pattern = pattern.replace(/\[\\^[^\]]+\]\*\?/g, '.*?'); // [^問]+? を .*? に変更
+                pattern = pattern.replace(/gs?$/, ''); // グローバル・マルチラインフラグを削除
+                
+                // 行の先頭から検索
+                if (!pattern.startsWith('^')) {
+                    pattern = '^' + pattern;
+                }
+                
+                const singleLineRegex = new RegExp(pattern, 'i');
+                const match = line.match(singleLineRegex);
+                
+                if (match && match[1]) {
+                    const number = parseInt(match[1]);
+                    if (number > 0 && number <= CONFIG.VALIDATION.questionNumberMax) {
+                        console.log(`問題番号検出成功: ${number} (パターン: ${patternConfig.name})`);
+                        return {
+                            number: number,
+                            questionText: match[2] ? match[2].trim() : '',
+                            fullMatch: match[0],
+                            pattern: patternConfig.name
+                        };
+                    }
+                }
+            } catch (regexError) {
+                console.warn(`正規表現エラー (${patternConfig.name}):`, regexError);
+                continue;
             }
         }
         
-        return bestPattern ? bestPattern.questions : [];
+        // シンプルな数字パターンもチェック
+        const simplePatterns = [
+            /^(\d+)[\s\.\)：。]+(.+)?/,
+            /^問\s*(\d+)[\s\.\)：。]*(.+)?/,
+            /^第?\s*(\d+)\s*問[\s\.\)：。]*(.+)?/,
+            /^\[(\d+)\][\s\.\)：。]*(.+)?/,
+            /^【(\d+)】[\s\.\)：。]*(.+)?/,
+            /^(\d{4,6})(.+)?/,  // 4-6桁の数字
+            /^(\d{5})\s*(.+)?/  // 5桁専用
+        ];
+        
+        for (const pattern of simplePatterns) {
+            const match = line.match(pattern);
+            if (match) {
+                const number = parseInt(match[1]);
+                if (number > 0 && number <= CONFIG.VALIDATION.questionNumberMax) {
+                    console.log(`シンプルパターンで検出成功: ${number}`);
+                    return {
+                        number: number,
+                        questionText: match[2] ? match[2].trim() : '',
+                        fullMatch: match[0],
+                        pattern: 'simple_number'
+                    };
+                }
+            }
+        }
+        
+        return null;
+    },
+
+    /**
+     * 答えを検出（基本実装）
+     * @param {string} line - テキスト行
+     * @returns {object|null} 検出結果
+     */
+    detectAnswer: function(line) {
+        // 設定されたパターンを使用
+        for (const patternConfig of CONFIG.PARSING.answerPatterns) {
+            const match = line.match(patternConfig.regex);
+            if (match && match[1]) {
+                console.log(`答え検出成功: ${match[1]} (パターン: ${patternConfig.name})`);
+                return {
+                    answer: match[1],
+                    fullMatch: match[0],
+                    pattern: patternConfig.name,
+                    confidence: patternConfig.confidence
+                };
+            }
+        }
+        
+        // 単純な○×検出
+        const simplePatterns = [
+            /([〇○×])/,
+            /^答え?[:：]?\s*([〇○×])/i,
+            /^正解[:：]?\s*([〇○×])/i
+        ];
+        
+        for (const pattern of simplePatterns) {
+            const match = line.match(pattern);
+            if (match) {
+                const answer = match[1] === '○' ? '〇' : match[1];
+                console.log(`シンプルパターンで答え検出: ${answer}`);
+                return {
+                    answer: answer,
+                    fullMatch: match[0],
+                    pattern: 'simple_answer',
+                    confidence: 0.8
+                };
+            }
+        }
+        
+        return null;
     },
     
     /**
@@ -319,28 +712,66 @@ const QuestionParser = {
      * @returns {object} 検出結果
      */
     detectWithPattern: function(text, patternConfig) {
+        console.log(`パターン検出実行: ${patternConfig.name}`);
+        console.log(`パターン: ${patternConfig.regex.source}`);
+        console.log(`テキストサンプル (最初500文字): "${text.substring(0, 500)}"`);
+        
         const questions = [];
-        const regex = new RegExp(patternConfig.regex.source, patternConfig.regex.flags);
+        let regex;
+        
+        try {
+            regex = new RegExp(patternConfig.regex.source, patternConfig.regex.flags);
+        } catch (regexError) {
+            console.error(`正規表現作成エラー (${patternConfig.name}):`, regexError);
+            return { questions: [], confidence: 0, coverage: 0 };
+        }
+        
         let match;
         let totalMatches = 0;
         
-        while ((match = regex.exec(text)) !== null) {
-            totalMatches++;
-            const questionNumber = parseInt(match[1]);
-            const questionText = match[2] ? match[2].trim() : '';
-            
-            if (questionNumber > 0 && questionNumber <= CONFIG.VALIDATION.questionNumberMax) {
-                questions.push({
-                    number: questionNumber,
-                    questionText: questionText,
-                    fullMatch: match[0],
-                    position: match.index,
-                    confidence: patternConfig.confidence
-                });
+        try {
+            while ((match = regex.exec(text)) !== null) {
+                totalMatches++;
+                console.log(`マッチ発見 ${totalMatches}: ${match[0].substring(0, 100)}`);
+                
+                if (match[1]) {
+                    const questionNumber = parseInt(match[1]);
+                    const questionText = match[2] ? match[2].trim() : '';
+                    
+                    console.log(`問題番号: ${questionNumber}, テキスト長: ${questionText.length}`);
+                    
+                    if (questionNumber > 0 && questionNumber <= CONFIG.VALIDATION.questionNumberMax) {
+                        questions.push({
+                            questionNumber: questionNumber,
+                            question: questionText,
+                            answer: null,
+                            explanation: '',
+                            confidence: patternConfig.confidence * 100, // パーセンテージに変換
+                            choices: [],
+                            metadata: {
+                                fullMatch: match[0],
+                                position: match.index,
+                                detectedPattern: patternConfig.name
+                            }
+                        });
+                        console.log(`有効な問題として追加: 問${questionNumber}`);
+                    } else {
+                        console.log(`問題番号が範囲外: ${questionNumber}`);
+                    }
+                } else {
+                    console.log(`問題番号が見つからない: ${match[0]}`);
+                }
+                
+                if (totalMatches > 1000) {
+                    console.warn('マッチ数上限に達しました');
+                    break;
+                }
             }
-            
-            if (totalMatches > 1000) break; // 無限ループ防止
+        } catch (execError) {
+            console.error(`正規表現実行エラー (${patternConfig.name}):`, execError);
         }
+        
+        console.log(`パターン ${patternConfig.name} 結果: ${questions.length}問検出`);
         
         const confidence = this.calculatePatternConfidence(questions, patternConfig);
         const coverage = questions.length > 0 ? questions.length / this.estimateQuestionCount(text) : 0;
@@ -708,6 +1139,64 @@ const QuestionParser = {
     },
 
     /**
+     * 基本的な問題の妥当性をチェック
+     * @param {object} question - 問題オブジェクト
+     * @returns {boolean} 妥当かどうか
+     */
+    isValidQuestionBasic: function(question) {
+        // 問題番号の存在チェック
+        if (!question.questionNumber || question.questionNumber < 1) {
+            return false;
+        }
+        
+        // 問題文の最小長チェック
+        if (!question.question || question.question.length < 20) {
+            return false;
+        }
+        
+        // 問題文に日本語が含まれているかチェック
+        if (!/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(question.question)) {
+            return false;
+        }
+        
+        return true;
+    },
+
+    /**
+     * テキストから選択肢を抽出
+     * @param {string} text - テキスト
+     * @returns {Array} 選択肢配列
+     */
+    extractChoices: function(text) {
+        const choices = [];
+        
+        // 設定から選択肢パターンを取得
+        for (const choicePattern of CONFIG.PARSING.choicePatterns) {
+            const matches = [...text.matchAll(choicePattern.regex)];
+            
+            if (matches.length >= 2) { // 最低2つの選択肢が必要
+                for (const match of matches) {
+                    if (match[1] && match[1].trim().length > 3) {
+                        choices.push({
+                            number: match[0].charAt(0), // 選択肢番号
+                            text: match[1].trim(),
+                            format: choicePattern.name
+                        });
+                    }
+                }
+                
+                // 選択肢が見つかったら最初のパターンを使用
+                if (choices.length > 0) {
+                    console.log(`選択肢抽出成功: ${choicePattern.name}形式で${choices.length}個`);
+                    break;
+                }
+            }
+        }
+        
+        return choices;
+    },
+
+    /**
      * 新しい問題オブジェクトを作成
      * @param {number} id - 問題ID
      * @param {object} questionMatch - 問題番号マッチ結果
@@ -811,11 +1300,52 @@ const QuestionParser = {
     },
 
     /**
+     * 問題が有効かどうかを判定（緩和版）
+     * @param {object} question - 問題オブジェクト
+     * @returns {boolean} 有効かどうか
+     */
+    isValidQuestionRelaxed: function(question) {
+        if (!question) return false;
+        
+        // より緩い条件でチェック
+        if (!question.question || question.question.trim().length < 5) {
+            return false;
+        }
+
+        // 問題番号の妥当性
+        if (question.questionNumber < CONFIG.VALIDATION.questionNumberMin || 
+            question.questionNumber > CONFIG.VALIDATION.questionNumberMax) {
+            return false;
+        }
+
+        // 信頼度チェック（より緩い閾値）
+        const threshold = Math.min(
+            parseInt(Utils.getNestedValue(
+                document.getElementById('confidenceThreshold'), 
+                'value', 
+                CONFIG.PARSING.confidence.minThreshold
+            )),
+            50  // 最大でも50%に制限
+        );
+        
+        if (question.confidence < threshold) {
+            return false;
+        }
+
+        return true;
+    },
+
+    /**
      * 多次元品質評価による問題最終化
      * @param {object} question - 問題オブジェクト
      * @returns {object} 最終化された問題
      */
     finalizeQuestion: function(question) {
+        // metadataオブジェクトを初期化
+        if (!question.metadata) {
+            question.metadata = {};
+        }
+        
         // 答えがない場合は推測
         if (!question.answer) {
             question.answer = this.guessAnswerFromQuestion(question.question, question.choices);
@@ -1163,6 +1693,244 @@ const QuestionParser = {
     },
 
     /**
+     * 適応的問題検出システム
+     * @param {string} text - 全体のテキスト
+     * @returns {Array} 検出された問題配列
+     */
+    detectQuestionsAdaptive: function(text) {
+        console.log('=== 適応的問題検出開始 ===');
+        console.log(`テキスト長: ${text.length}文字`);
+        
+        const detectionResults = [];
+        
+        // 各パターンで検出を試行
+        for (const patternConfig of CONFIG.PARSING.questionNumberPatterns) {
+            console.log(`パターン試行: ${patternConfig.name}`);
+            
+            try {
+                const result = this.detectWithPattern(text, patternConfig);
+                console.log(`パターン${patternConfig.name}: ${result.questions.length}問検出, 信頼度: ${result.confidence}%`);
+                
+                if (result.questions.length > 0) {
+                    detectionResults.push({
+                        pattern: patternConfig,
+                        questions: result.questions,
+                        confidence: result.confidence,
+                        coverage: result.coverage
+                    });
+                }
+            } catch (error) {
+                console.warn(`パターン${patternConfig.name}でエラー:`, error);
+            }
+        }
+        
+        // 最適パターンを選択
+        const bestPattern = this.selectBestPattern(detectionResults);
+        if (bestPattern) {
+            console.log(`最適パターン選択: ${bestPattern.pattern.name}, ${bestPattern.questions.length}問`);
+            return bestPattern.questions;
+        }
+        
+        console.log('適応的検出で問題が見つかりませんでした');
+        return [];
+    },
+
+    /**
+     * 指定パターンで問題を検出
+     * @param {string} text - テキスト
+     * @param {object} patternConfig - パターン設定
+     * @returns {object} 検出結果
+     */
+    detectWithPattern: function(text, patternConfig) {
+        const questions = [];
+        let totalMatches = 0;
+        let validQuestions = 0;
+        
+        console.log(`=== ${patternConfig.name} デバッグ開始 ===`);
+        console.log(`パターン: ${patternConfig.regex}`);
+        console.log(`パターンフラグ: ${patternConfig.regex.flags}`);
+        console.log(`テキストサンプル (最初500文字):`, text.substring(0, 500));
+        console.log(`テキストの行数: ${text.split('\n').length}`);
+        
+        // パターンマッチング
+        let matches;
+        try {
+            matches = [...text.matchAll(patternConfig.regex)];
+            totalMatches = matches.length;
+        } catch (regexError) {
+            console.error(`正規表現エラー: ${regexError.message}`);
+            matches = [];
+            totalMatches = 0;
+        }
+        
+        console.log(`${patternConfig.name}: ${totalMatches}個のマッチ`);
+        
+        if (totalMatches === 0) {
+            console.log('=== マッチなし - 問題診断開始 ===');
+            
+            // パターンを段階的にテスト
+            const diagnosticTests = [
+                { name: '数字のみ', pattern: /\d+/g },
+                { name: '問文字', pattern: /問/g },
+                { name: '第文字', pattern: /第/g },
+                { name: '行頭数字', pattern: /^\d+/gm },
+                { name: '問+任意文字', pattern: /問[\s\S]*?\d+/g },
+                { name: '数字+ピリオド', pattern: /\d+[．.。]/g }
+            ];
+            
+            for (const test of diagnosticTests) {
+                const testMatches = [...text.matchAll(test.pattern)];
+                console.log(`診断テスト "${test.name}": ${testMatches.length}個マッチ`);
+                if (testMatches.length > 0 && testMatches.length <= 10) {
+                    console.log(`  例: ${testMatches.slice(0, 3).map(m => `"${m[0]}"`).join(', ')}`);
+                }
+            }
+            
+            // 実際のパターンの構成要素をテスト
+            console.log('=== パターン構成要素テスト ===');
+            const originalPattern = patternConfig.regex.source;
+            console.log(`元パターン: ${originalPattern}`);
+            
+            // より簡単なバリエーションをテスト
+            const simpleVariations = [
+                /問\s*(\d+)/g,
+                /^問\s*(\d+)/gm,
+                /(?:問題?|問)\s*(\d+)/g,
+                /^(?:問題?|問)\s*(\d+)/gm
+            ];
+            
+            for (let i = 0; i < simpleVariations.length; i++) {
+                const simpleMatches = [...text.matchAll(simpleVariations[i])];
+                console.log(`簡単バリエーション${i+1}: ${simpleMatches.length}個マッチ`);
+                if (simpleMatches.length > 0) {
+                    console.log(`  最初の3個: ${simpleMatches.slice(0, 3).map(m => `問${m[1]}`).join(', ')}`);
+                }
+            }
+            
+        } else {
+            console.log('マッチ結果例:', matches.slice(0, 3).map(m => ({
+                fullMatch: m[0].substring(0, 100),
+                number: m[1],
+                text: m[2] ? m[2].substring(0, 100) : 'なし'
+            })));
+        }
+        
+        for (const match of matches) {
+            try {
+                const questionNumber = parseInt(match[1]);
+                const questionText = match[2] ? match[2].trim() : '';
+                
+                console.log(`処理中: 問${questionNumber}, テキスト長: ${questionText.length}`);
+                
+                if (questionNumber && questionText.length > 10) {
+                    const question = {
+                        questionNumber: questionNumber,
+                        question: questionText,
+                        choices: [],
+                        answer: null,
+                        explanation: '',
+                        confidence: patternConfig.confidence * 100,
+                        metadata: {
+                            pattern: patternConfig.name,
+                            extractedAt: new Date().toISOString()
+                        }
+                    };
+                    
+                    // 選択肢抽出
+                    question.choices = this.extractChoices(questionText);
+                    
+                    // 基本検証
+                    if (this.isValidQuestionBasic(question)) {
+                        questions.push(question);
+                        validQuestions++;
+                        console.log(`問${questionNumber}を追加 (信頼度: ${question.confidence})`);
+                    } else {
+                        console.log(`問${questionNumber}は基本検証で失格`);
+                    }
+                } else {
+                    console.log(`問${questionNumber}は条件不足 (テキスト長: ${questionText.length})`);
+                }
+            } catch (error) {
+                console.warn(`問題処理エラー:`, error);
+            }
+        }
+        
+        const confidence = totalMatches > 0 ? (validQuestions / totalMatches) * 100 : 0;
+        const coverage = text.length > 0 ? (totalMatches * 50) / text.length : 0; // 概算
+        
+        console.log(`=== ${patternConfig.name} 結果 ===`);
+        console.log(`総マッチ: ${totalMatches}, 有効問題: ${validQuestions}, 信頼度: ${confidence}%`);
+        
+        return {
+            questions: questions,
+            confidence: confidence,
+            coverage: coverage,
+            totalMatches: totalMatches,
+            validQuestions: validQuestions
+        };
+    },
+
+    /**
+     * 最適パターンを選択
+     * @param {Array} detectionResults - 検出結果配列
+     * @returns {object|null} 最適パターン
+     */
+    selectBestPattern: function(detectionResults) {
+        if (detectionResults.length === 0) {
+            return null;
+        }
+        
+        // スコア計算による選択
+        let bestPattern = null;
+        let bestScore = 0;
+        
+        for (const result of detectionResults) {
+            const score = this.calculatePatternScore(result);
+            console.log(`パターン${result.pattern.name}のスコア: ${score}`);
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestPattern = result;
+            }
+        }
+        
+        // 最低スコア閾値チェック
+        const minimumThreshold = CONFIG.PARSING.confidence.minimumThreshold || 20;
+        console.log(`スコア評価: 最高スコア=${bestScore}, 閾値=${minimumThreshold}`);
+        
+        if (bestScore < minimumThreshold) {
+            console.log(`最高スコア${bestScore}が閾値${minimumThreshold}を下回ります`);
+            console.log('利用可能な全パターンの詳細:');
+            for (const result of detectionResults) {
+                console.log(`  ${result.pattern.name}: 問題数=${result.questions.length}, 信頼度=${result.confidence}, スコア計算結果=${this.calculatePatternScore(result)}`);
+            }
+            return null;
+        }
+        
+        return bestPattern;
+    },
+
+    /**
+     * パターンスコアを計算
+     * @param {object} result - 検出結果
+     * @returns {number} スコア
+     */
+    calculatePatternScore: function(result) {
+        const questionCount = result.questions.length;
+        const confidence = result.confidence;
+        const coverage = result.coverage;
+        const patternConfidence = result.pattern.confidence;
+        
+        // 重み付きスコア計算
+        const score = (questionCount * 0.4) + 
+                     (confidence * 0.3) + 
+                     (coverage * 0.2) + 
+                     (patternConfidence * 100 * 0.1);
+        
+        return Math.min(score, 100); // 最大100
+    },
+
+    /**
      * パターンを分析
      * @param {object} patterns - 検出されたパターン
      * @returns {object} 分析結果
@@ -1359,6 +2127,105 @@ const QuestionParser = {
         }
 
         return stats;
+    },
+
+    /**
+     * 緊急用の単純抽出（最後の手段）
+     * @param {Array<string>} lines - テキスト行配列
+     * @param {string} section - セクション
+     * @param {string} fileName - ファイル名
+     * @returns {Array} 問題配列
+     */
+    emergencySimpleExtraction: function(lines, section, fileName) {
+        console.log('緊急単純抽出を開始します');
+        const questions = [];
+        let questionCount = 0;
+        
+        // 非常に単純なパターンで数字を探す
+        const simplePatterns = [
+            /^(\d+)[\.．。\s]/,  // 数字 + ピリオドまたはスペース
+            /^(\d+)\)/,         // 数字 + 閉じ括弧  
+            /^\((\d+)\)/,       // 括弧数字
+            /^(\d+):/,          // 数字 + コロン
+            /^(\d+)\s+/         // 数字 + スペース
+        ];
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (line.length < 5) continue; // 短すぎる行はスキップ
+            
+            for (const pattern of simplePatterns) {
+                const match = line.match(pattern);
+                if (match) {
+                    const questionNumber = parseInt(match[1]);
+                    
+                    // 合理的な問題番号の範囲内か
+                    if (questionNumber >= 1 && questionNumber <= 999) {
+                        // 問題文を収集（複数行の可能性）
+                        let questionText = line.replace(pattern, '').trim();
+                        
+                        // 次の数行も問題文として追加（次の問題番号まで）
+                        for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+                            const nextLine = lines[j].trim();
+                            
+                            // 次の問題番号らしきものが見つかったら停止
+                            let isNextQuestion = false;
+                            for (const testPattern of simplePatterns) {
+                                if (testPattern.test(nextLine)) {
+                                    const testMatch = nextLine.match(testPattern);
+                                    if (testMatch) {
+                                        const testNumber = parseInt(testMatch[1]);
+                                        if (testNumber > questionNumber && testNumber <= questionNumber + 3) {
+                                            isNextQuestion = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (isNextQuestion) break;
+                            
+                            // 答えや解説っぽい行は除外
+                            if (nextLine.length > 0 && 
+                                !nextLine.match(/^(答え?|解答|解説|正解)[:：]/i) &&
+                                !nextLine.match(/^[〇○×]$/) &&
+                                nextLine.length < 200) {
+                                questionText += ' ' + nextLine;
+                            }
+                        }
+                        
+                        // 最低限の長さがあれば問題として追加
+                        if (questionText.length >= 10) {
+                            questionCount++;
+                            questions.push({
+                                id: questionCount,
+                                section: section,
+                                year: this.extractYear(fileName) || 'R6',
+                                questionNumber: questionNumber,
+                                question: questionText,
+                                answer: null,
+                                explanation: '',
+                                source: fileName,
+                                extractionMethod: 'emergency_simple',
+                                confidence: 30, // 低い信頼度
+                                metadata: {
+                                    detectedPattern: 'emergency_simple',
+                                    lineIndex: i,
+                                    originalLine: line
+                                }
+                            });
+                            
+                            console.log(`緊急抽出: 問${questionNumber} - "${questionText.substring(0, 50)}..."`);
+                        }
+                        
+                        break; // 一つのパターンがマッチしたら他はテストしない
+                    }
+                }
+            }
+        }
+        
+        console.log(`緊急単純抽出完了: ${questions.length}問を抽出`);
+        return questions;
     }
 };
 
