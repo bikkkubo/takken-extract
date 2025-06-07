@@ -85,11 +85,45 @@ const QuestionParser = {
      * @returns {Array<string>} 処理済み行配列
      */
     preprocessText: function(text) {
-        return text
+        const rawLines = text
             .split(/\n+/)
             .map(line => line.trim())
             .filter(line => line.length > 0)
             .map(line => TextCleaner.cleanJapaneseText(line));
+        
+        // 短い行を結合する処理を追加
+        return this.mergeShortLines(rawLines, 25);
+    },
+    
+    /**
+     * 短い行を結合
+     * @param {Array<string>} lines - 行配列
+     * @param {number} minLen - 最小行長
+     * @returns {Array<string>} 結合後の行配列
+     */
+    mergeShortLines: function(lines, minLen = 25) {
+        const merged = [];
+        let buffer = '';
+        
+        for (const line of lines) {
+            if (line.length < minLen && !line.match(/^(\d{4,6})|[×〇○]$/)) {
+                buffer += (buffer ? ' ' : '') + line.trim();
+                continue;
+            }
+            
+            if (buffer) {
+                merged.push(buffer + ' ' + line);
+                buffer = '';
+            } else {
+                merged.push(line);
+            }
+        }
+        
+        if (buffer) {
+            merged.push(buffer);
+        }
+        
+        return merged;
     },
 
     /**
@@ -713,8 +747,9 @@ const QuestionParser = {
      */
     detectWithPattern: function(text, patternConfig) {
         console.log(`パターン検出実行: ${patternConfig.name}`);
-        console.log(`パターン: ${patternConfig.regex.source}`);
-        console.log(`テキストサンプル (最初500文字): "${text.substring(0, 500)}"`);
+        Utils.debugLog.log('debug', `パターン検出実行: ${patternConfig.name}`);
+        Utils.debugLog.log('debug', `パターン: ${patternConfig.regex.source}`);
+        Utils.debugLog.log('debug', `テキストサンプル (最初500文字): "${text.substring(0, 500)}"`);
         
         const questions = [];
         let regex;
@@ -723,7 +758,13 @@ const QuestionParser = {
             regex = new RegExp(patternConfig.regex.source, patternConfig.regex.flags);
         } catch (regexError) {
             console.error(`正規表現作成エラー (${patternConfig.name}):`, regexError);
+            Utils.debugLog.log('error', `正規表現作成エラー: ${patternConfig.name}`, regexError.message);
             return { questions: [], confidence: 0, coverage: 0 };
+        }
+        
+        // 回答アンカー形式の特別処理
+        if (patternConfig.type === 'answer_anchored') {
+            return this.processAnswerAnchoredPattern(text, patternConfig, regex);
         }
         
         let match;
@@ -2226,6 +2267,59 @@ const QuestionParser = {
         
         console.log(`緊急単純抽出完了: ${questions.length}問を抽出`);
         return questions;
+    },
+    
+    /**
+     * 回答アンカー形式の処理
+     * @param {string} text - テキスト
+     * @param {object} patternConfig - パターン設定
+     * @param {RegExp} regex - 正規表現
+     * @returns {object} 検出結果
+     */
+    processAnswerAnchoredPattern: function(text, patternConfig, regex) {
+        const questions = [];
+        let match;
+        
+        Utils.debugLog.log('debug', '=== 回答アンカー形式処理開始 ===');
+        
+        while ((match = regex.exec(text)) !== null) {
+            const questionNumber = parseInt(match[1]);
+            const questionText = match[2] ? match[2].trim() : '';
+            const answer = match[3] === '○' ? '〇' : match[3]; // 正規化
+            
+            Utils.debugLog.log('debug', `回答アンカー検出: 問${questionNumber}, 答え: ${answer}`);
+            Utils.debugLog.log('debug', `問題文プレビュー: "${questionText.substring(0, 100)}..."`);
+            
+            if (questionNumber > 0 && questionNumber <= CONFIG.VALIDATION.questionNumberMax && questionText.length > 5) {
+                questions.push({
+                    questionNumber: questionNumber,
+                    question: questionText,
+                    answer: answer,
+                    explanation: '',
+                    confidence: patternConfig.confidence * 100,
+                    choices: [],
+                    metadata: {
+                        fullMatch: match[0],
+                        position: match.index,
+                        detectedPattern: patternConfig.name,
+                        hasAnswer: true
+                    }
+                });
+                
+                Utils.debugLog.log('debug', `有効な問題として追加: 問${questionNumber} (信頼度: ${patternConfig.confidence * 100}%)`);
+            }
+        }
+        
+        const confidence = questions.length > 0 ? 95 : 0; // 回答が見つかれば高信頼度
+        const coverage = questions.length / Math.max(1, this.estimateQuestionCount(text));
+        
+        Utils.debugLog.log('debug', `回答アンカー処理結果: ${questions.length}問検出, 信頼度: ${confidence}%`);
+        
+        return {
+            questions: questions,
+            confidence: confidence,
+            coverage: Math.min(coverage, 1.0)
+        };
     }
 };
 

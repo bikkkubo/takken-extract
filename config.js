@@ -109,6 +109,18 @@ const CONFIG = {
                 type: 'takken_year_number'
             },
             {
+                name: '複数行対応5桁',
+                regex: /(\d{5})([\s\S]+?)(?=\d{5}|×|〇|○|$)/g,
+                confidence: 0.90,
+                type: 'multiline_five_digit'
+            },
+            {
+                name: '回答アンカー形式',
+                regex: /(\d{5})([\s\S]*?)([×〇○])/g,
+                confidence: 0.95,
+                type: 'answer_anchored'
+            },
+            {
                 name: 'シンプル数字',
                 regex: /^(\d+)[\s　]+(.+?)(?=^\d+[\s　]|$)/gs,
                 confidence: 0.70,
@@ -192,7 +204,7 @@ const CONFIG = {
         ],
         
         // 最小問題文長
-        minQuestionLength: 20,
+        minQuestionLength: 10,
         maxQuestionLength: 1000,
         
         // 最小解説文長
@@ -219,7 +231,7 @@ const CONFIG = {
             patternMatched: 5,
             choicesFound: 15,          // 選択肢発見ボーナス
             formatConsistent: 10,      // 形式一貫性ボーナス
-            minThreshold: 20,          // より緩い閾値に変更
+            minThreshold: 0,           // 最も緩い閾値に変更
             maxThreshold: 95
         }
     },
