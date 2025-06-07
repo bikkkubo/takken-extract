@@ -110,15 +110,27 @@ const CONFIG = {
             },
             {
                 name: '複数行対応5桁',
-                regex: /(\d{5})([\s\S]+?)(?=\d{5}|×|〇|○|$)/g,
+                regex: /(\d{5})([\s\S]+?)(?=\d{5}|×|〇|○|$)/gs,
                 confidence: 0.90,
                 type: 'multiline_five_digit'
             },
             {
                 name: '回答アンカー形式',
-                regex: /(\d{5})([\s\S]*?)([×〇○])/g,
+                regex: /(\d{5})([\s\S]*?)([×〇○])/gs,
                 confidence: 0.95,
                 type: 'answer_anchored'
+            },
+            {
+                name: '問題番号→年度→問題→回答',
+                regex: /(\d{5})[\s\S]*?([RHR]?\d{1,2})[\s\S]*?(.{10,}?)[\s\S]*?([×〇○])/gs,
+                confidence: 0.98,
+                type: 'complete_pattern'
+            },
+            {
+                name: 'DOTALL複数行',
+                regex: /(\d{5})(.+?)([×〇○])/gsi,
+                confidence: 0.92,
+                type: 'dotall_multiline'
             },
             {
                 name: 'シンプル数字',

@@ -92,7 +92,7 @@ const QuestionParser = {
             .map(line => TextCleaner.cleanJapaneseText(line));
         
         // 短い行を結合する処理を追加
-        return this.mergeShortLines(rawLines, 25);
+        return this.mergeShortLines(rawLines, 20);
     },
     
     /**
@@ -101,7 +101,7 @@ const QuestionParser = {
      * @param {number} minLen - 最小行長
      * @returns {Array<string>} 結合後の行配列
      */
-    mergeShortLines: function(lines, minLen = 25) {
+    mergeShortLines: function(lines, minLen = 20) {
         const merged = [];
         let buffer = '';
         
@@ -765,6 +765,11 @@ const QuestionParser = {
         // 回答アンカー形式の特別処理
         if (patternConfig.type === 'answer_anchored') {
             return this.processAnswerAnchoredPattern(text, patternConfig, regex);
+        }
+        
+        // 完全パターンの特別処理
+        if (patternConfig.type === 'complete_pattern') {
+            return this.processCompletePattern(text, patternConfig, regex);
         }
         
         let match;
@@ -2314,6 +2319,62 @@ const QuestionParser = {
         const coverage = questions.length / Math.max(1, this.estimateQuestionCount(text));
         
         Utils.debugLog.log('debug', `回答アンカー処理結果: ${questions.length}問検出, 信頼度: ${confidence}%`);
+        
+        return {
+            questions: questions,
+            confidence: confidence,
+            coverage: Math.min(coverage, 1.0)
+        };
+    },
+    
+    /**
+     * 完全パターンの処理
+     * @param {string} text - テキスト
+     * @param {object} patternConfig - パターン設定
+     * @param {RegExp} regex - 正規表現
+     * @returns {object} 検出結果
+     */
+    processCompletePattern: function(text, patternConfig, regex) {
+        const questions = [];
+        let match;
+        
+        Utils.debugLog.log('debug', '=== 完全パターン処理開始 ===');
+        
+        while ((match = regex.exec(text)) !== null) {
+            const questionNumber = parseInt(match[1]);
+            const year = match[2] || '';
+            const questionText = match[3] ? match[3].trim() : '';
+            const answer = match[4] === '○' ? '〇' : match[4]; // 正規化
+            
+            Utils.debugLog.log('debug', `完全パターン検出: 問${questionNumber}, 年度: ${year}, 答え: ${answer}`);
+            Utils.debugLog.log('debug', `問題文プレビュー: "${questionText.substring(0, 100)}..."`);
+            
+            if (questionNumber > 0 && questionNumber <= CONFIG.VALIDATION.questionNumberMax && questionText.length > 10) {
+                questions.push({
+                    questionNumber: questionNumber,
+                    question: questionText,
+                    answer: answer,
+                    year: year,
+                    explanation: '',
+                    confidence: patternConfig.confidence * 100,
+                    choices: [],
+                    metadata: {
+                        fullMatch: match[0],
+                        position: match.index,
+                        detectedPattern: patternConfig.name,
+                        hasAnswer: true,
+                        hasYear: !!year
+                    }
+                });
+                
+                Utils.debugLog.log('debug', `有効な問題として追加: 問${questionNumber} (信頼度: ${patternConfig.confidence * 100}%)`);
+            }
+        }
+        
+        const confidence = questions.length > 0 ? 98 : 0; // 完全パターンは最高信頼度
+        const coverage = questions.length / Math.max(1, this.estimateQuestionCount(text));
+        
+        Utils.debugLog.log('debug', `完全パターン処理結果: ${questions.length}問検出, 信頼度: ${confidence}%`);
         
         return {
             questions: questions,
